@@ -30,6 +30,7 @@ class AuthController {
       const token = generateJwt(user.id, user.email, user.role);
       return res.json({
         token,
+        user,
       });
     } catch (e) {
       next(ApiError.internal(e.message));
@@ -61,6 +62,7 @@ class AuthController {
       const token = generateJwt(user.id, user.email, user.role);
       return res.json({
         token,
+        user,
       });
     } catch (e) {
       next(ApiError.internal(e.message));

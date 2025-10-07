@@ -341,6 +341,157 @@ class StatsController {
       next(ApiError.internal(e.message));
     }
   }
+  // Дополнительные методы для статистики сотрудников
+  async getEmployeeWaiters(req, res, next) {
+    try {
+      const { period = "month" } = req.query;
+
+      let startDate = new Date();
+      switch (period) {
+        case "day":
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case "week":
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case "month":
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case "year":
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setMonth(startDate.getMonth() - 1);
+      }
+
+      const waiterStats = await Order.findAll({
+        where: {
+          createdAt: {
+            [Op.gte]: startDate,
+          },
+        },
+        include: [
+          {
+            model: User,
+            as: "waiter",
+            attributes: ["id", "firstName", "lastName"],
+            where: {
+              role: "waiter",
+            },
+          },
+        ],
+        attributes: [
+          "waiterId",
+          [fn("COUNT", col("id")), "totalOrders"],
+          [fn("SUM", col("totalAmount")), "totalRevenue"],
+          [fn("AVG", col("totalAmount")), "averageOrderValue"],
+        ],
+        group: ["waiterId", "waiter.id", "waiter.firstName", "waiter.lastName"],
+        order: [[literal('"totalRevenue"'), "DESC"]],
+        raw: false,
+      });
+
+      const stats = waiterStats.map((order) => ({
+        waiterId: order.waiterId,
+        waiterName: `${order.waiter.firstName} ${order.waiter.lastName}`,
+        totalOrders: parseInt(order.get("totalOrders")) || 0,
+        totalRevenue: parseFloat(order.get("totalRevenue")) || 0,
+        averageOrderValue: parseFloat(order.get("averageOrderValue")) || 0,
+      }));
+
+      return res.json(stats);
+    } catch (e) {
+      console.error("Waiter stats error:", e);
+      next(ApiError.internal(e.message));
+    }
+  }
+
+  async getEmployeeChefs(req, res, next) {
+    try {
+      const { period = "month" } = req.query;
+
+      let startDate = new Date();
+      switch (period) {
+        case "day":
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case "week":
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case "month":
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case "year":
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setMonth(startDate.getMonth() - 1);
+      }
+
+      const chefStats = await OrderItem.findAll({
+        include: [
+          {
+            model: Order,
+            as: "order",
+            where: {
+              createdAt: {
+                [Op.gte]: startDate,
+              },
+            },
+            attributes: [],
+          },
+          {
+            model: User,
+            as: "chef",
+            attributes: ["id", "firstName", "lastName"],
+            where: {
+              role: "chef",
+            },
+          },
+        ],
+        attributes: [
+          "chefId",
+          [fn("COUNT", col("id")), "totalDishesPrepared"],
+          [
+            fn(
+              "AVG",
+              literal('EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) / 60')
+            ),
+            "averagePreparationTime",
+          ],
+          [
+            fn(
+              "COUNT",
+              literal(
+                'DISTINCT CASE WHEN "status" = \'preparing\' THEN "orderId" ELSE NULL END'
+              )
+            ),
+            "activeOrders",
+          ],
+        ],
+        group: ["chefId", "chef.id", "chef.firstName", "chef.lastName"],
+        order: [[literal('"totalDishesPrepared"'), "DESC"]],
+        raw: false,
+      });
+
+      const stats = chefStats.map((item) => ({
+        chefId: item.chefId,
+        chefName: item.chef
+          ? `${item.chef.firstName} ${item.chef.lastName}`
+          : "Не назначен",
+        totalDishesPrepared: parseInt(item.get("totalDishesPrepared")) || 0,
+        averagePreparationTime: Math.round(
+          parseFloat(item.get("averagePreparationTime")) || 0
+        ),
+        activeOrders: parseInt(item.get("activeOrders")) || 0,
+      }));
+
+      return res.json(stats);
+    } catch (e) {
+      console.error("Chef stats error:", e);
+      next(ApiError.internal(e.message));
+    }
+  }
 }
 
 module.exports = new StatsController();

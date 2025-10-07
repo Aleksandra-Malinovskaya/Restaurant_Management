@@ -36,7 +36,22 @@ class ReservationController {
 
   async checkAvailability(req, res, next) {
     try {
-      const { tableId, reservedFrom, reservedTo, guestsCount } = req.query;
+      const {
+        tableId,
+        reservedFrom,
+        reservedTo,
+        guestsCount,
+        excludeReservationId,
+      } = req.query;
+
+      console.log("=== CHECK AVAILABILITY ===");
+      console.log("Params:", {
+        tableId,
+        reservedFrom,
+        reservedTo,
+        guestsCount,
+        excludeReservationId,
+      });
 
       if (!tableId || !reservedFrom || !reservedTo) {
         return next(
@@ -58,18 +73,43 @@ class ReservationController {
         });
       }
 
-      // Проверяем пересечения по времени
+      const checkReservedFrom = new Date(reservedFrom);
+      const checkReservedTo = new Date(reservedTo);
+
+      // Создаем условие для исключения бронирования
+      const whereCondition = {
+        tableId,
+        status: { [Op.in]: ["confirmed", "seated"] },
+        [Op.and]: [
+          {
+            reservedFrom: { [Op.lt]: checkReservedTo },
+          },
+          {
+            reservedTo: { [Op.gt]: checkReservedFrom },
+          },
+        ],
+      };
+
+      // Если указан excludeReservationId, исключаем это бронирование из проверки
+      if (excludeReservationId) {
+        whereCondition.id = { [Op.ne]: excludeReservationId };
+      }
+
+      // ПРАВИЛЬНАЯ проверка пересечений по времени
       const conflictingReservation = await Reservation.findOne({
-        where: {
-          tableId,
-          status: { [Op.in]: ["confirmed", "seated"] },
-          [Op.or]: [
-            {
-              reservedFrom: { [Op.lt]: new Date(reservedTo) },
-              reservedTo: { [Op.gt]: new Date(reservedFrom) },
-            },
-          ],
-        },
+        where: whereCondition,
+      });
+
+      console.log("Availability check result:", {
+        available: !conflictingReservation,
+        conflict: conflictingReservation
+          ? {
+              id: conflictingReservation.id,
+              reservedFrom: conflictingReservation.reservedFrom,
+              reservedTo: conflictingReservation.reservedTo,
+              status: conflictingReservation.status,
+            }
+          : null,
       });
 
       const available = !conflictingReservation;
@@ -84,6 +124,7 @@ class ReservationController {
           : null,
       });
     } catch (e) {
+      console.error("Availability check error:", e);
       next(ApiError.internal(e.message));
     }
   }
@@ -114,7 +155,6 @@ class ReservationController {
         );
       }
 
-      // Проверяем доступность используя ту же логику что и в checkAvailability
       const table = await Table.findByPk(tableId);
       if (!table) {
         return next(ApiError.notFound("Столик не найден"));
@@ -124,15 +164,20 @@ class ReservationController {
         return next(ApiError.badRequest("Превышена вместимость столика"));
       }
 
+      const checkReservedFrom = new Date(reservedFrom);
+      const checkReservedTo = new Date(reservedTo);
+
       // Проверяем пересечения по времени
       const conflictingReservation = await Reservation.findOne({
         where: {
           tableId,
           status: { [Op.in]: ["confirmed", "seated"] },
-          [Op.or]: [
+          [Op.and]: [
             {
-              reservedFrom: { [Op.lt]: new Date(reservedTo) },
-              reservedTo: { [Op.gt]: new Date(reservedFrom) },
+              reservedFrom: { [Op.lt]: checkReservedTo },
+            },
+            {
+              reservedTo: { [Op.gt]: checkReservedFrom },
             },
           ],
         },
@@ -148,8 +193,8 @@ class ReservationController {
         customerName,
         customerPhone,
         guestCount,
-        reservedFrom: new Date(reservedFrom),
-        reservedTo: new Date(reservedTo),
+        reservedFrom: checkReservedFrom,
+        reservedTo: checkReservedTo,
         userId: req.user.id,
       });
 
@@ -172,17 +217,37 @@ class ReservationController {
       const { tableId, reservedFrom, reservedTo, guestCount, ...otherFields } =
         req.body;
 
+      console.log("=== UPDATE RESERVATION ===");
+      console.log("Reservation ID:", id);
+      console.log("Request body:", req.body);
+
       const reservation = await Reservation.findByPk(id);
       if (!reservation) {
         return next(ApiError.notFound("Бронирование не найдено"));
       }
 
+      console.log("Current reservation:", {
+        tableId: reservation.tableId,
+        reservedFrom: reservation.reservedFrom,
+        reservedTo: reservation.reservedTo,
+        status: reservation.status,
+      });
+
       // Если меняется время или стол - проверяем доступность
       if (reservedFrom || reservedTo || tableId) {
         const checkTableId = tableId || reservation.tableId;
-        const checkReservedFrom = reservedFrom || reservation.reservedFrom;
-        const checkReservedTo = reservedTo || reservation.reservedTo;
+        const checkReservedFrom = new Date(
+          reservedFrom || reservation.reservedFrom
+        );
+        const checkReservedTo = new Date(reservedTo || reservation.reservedTo);
         const checkGuestCount = guestCount || reservation.guestCount;
+
+        console.log("Checking availability for:", {
+          checkTableId,
+          checkReservedFrom,
+          checkReservedTo,
+          checkGuestCount,
+        });
 
         // Проверяем стол
         const table = await Table.findByPk(checkTableId);
@@ -195,29 +260,48 @@ class ReservationController {
           return next(ApiError.badRequest("Превышена вместимость столика"));
         }
 
-        // Проверяем пересечения по времени (исключая текущее бронирование)
-        const conflictingReservation = await Reservation.findOne({
+        // Ищем конфликтующие бронирования (исключая текущее)
+        const conflictingReservations = await Reservation.findAll({
           where: {
             tableId: checkTableId,
-            id: { [Op.ne]: id }, // Исключаем текущее бронирование
+            id: { [Op.ne]: id }, // ВАЖНО: исключаем текущее бронирование
             status: { [Op.in]: ["confirmed", "seated"] },
-            [Op.or]: [
+            [Op.and]: [
               {
-                reservedFrom: { [Op.lt]: new Date(checkReservedTo) },
-                reservedTo: { [Op.gt]: new Date(checkReservedFrom) },
+                reservedFrom: { [Op.lt]: checkReservedTo },
+              },
+              {
+                reservedTo: { [Op.gt]: checkReservedFrom },
               },
             ],
           },
         });
 
-        if (conflictingReservation) {
+        console.log(
+          "Found conflicting reservations:",
+          conflictingReservations.length
+        );
+        if (conflictingReservations.length > 0) {
+          console.log(
+            "Conflicts details:",
+            conflictingReservations.map((r) => ({
+              id: r.id,
+              reservedFrom: r.reservedFrom,
+              reservedTo: r.reservedTo,
+              status: r.status,
+              customerName: r.customerName,
+            }))
+          );
+
+          const conflict = conflictingReservations[0];
           return next(
             ApiError.badRequest({
-              message: "Столик занят на указанное время",
+              message: "Столик занят на указанное время другим бронированием",
               conflict: {
-                id: conflictingReservation.id,
-                reservedFrom: conflictingReservation.reservedFrom,
-                reservedTo: conflictingReservation.reservedTo,
+                id: conflict.id,
+                customerName: conflict.customerName,
+                reservedFrom: conflict.reservedFrom,
+                reservedTo: conflict.reservedTo,
               },
             })
           );
@@ -231,6 +315,8 @@ class ReservationController {
       if (reservedTo) updateData.reservedTo = new Date(reservedTo);
       if (guestCount) updateData.guestCount = guestCount;
 
+      console.log("Updating with data:", updateData);
+
       await reservation.update(updateData);
 
       const updatedReservation = await Reservation.findByPk(id, {
@@ -240,8 +326,10 @@ class ReservationController {
         ],
       });
 
+      console.log("Update successful");
       return res.json(updatedReservation);
     } catch (e) {
+      console.error("Update error:", e);
       next(ApiError.internal(e.message));
     }
   }
@@ -251,35 +339,50 @@ class ReservationController {
       const { id } = req.params;
       const { status } = req.body;
 
+      console.log("=== CHANGE STATUS ===");
+      console.log("Reservation ID:", id);
+      console.log("New status:", status);
+
       const reservation = await Reservation.findByPk(id);
       if (!reservation) {
         return next(ApiError.notFound("Бронирование не найдено"));
       }
 
+      // Если меняем статус на confirmed или seated - проверяем конфликты
       if (
         (status === "confirmed" || status === "seated") &&
         reservation.status !== status
       ) {
+        // Проверяем пересечения (исключая текущее бронирование)
         const conflictingReservation = await Reservation.findOne({
           where: {
             tableId: reservation.tableId,
-            id: { [Op.ne]: id },
+            id: { [Op.ne]: id }, // ← ИСКЛЮЧАЕМ ТЕКУЩЕЕ БРОНИРОВАНИЕ
             status: { [Op.in]: ["confirmed", "seated"] },
-            [Op.or]: [
+            [Op.and]: [
               {
                 reservedFrom: { [Op.lt]: reservation.reservedTo },
+              },
+              {
                 reservedTo: { [Op.gt]: reservation.reservedFrom },
               },
             ],
           },
         });
 
+        console.log(
+          "Status change - conflicting reservation:",
+          conflictingReservation
+        );
+
         if (conflictingReservation) {
           return next(
             ApiError.badRequest({
-              message: "Невозможно изменить статус - столик занят на это время",
+              message:
+                "Невозможно изменить статус - столик занят на это время другим бронированием",
               conflict: {
                 id: conflictingReservation.id,
+                customerName: conflictingReservation.customerName,
                 reservedFrom: conflictingReservation.reservedFrom,
                 reservedTo: conflictingReservation.reservedTo,
               },
@@ -289,8 +392,10 @@ class ReservationController {
       }
 
       await reservation.update({ status });
+      console.log("Status changed successfully");
       return res.json({ message: "Статус бронирования изменен" });
     } catch (e) {
+      console.error("Status change error:", e);
       next(ApiError.internal(e.message));
     }
   }

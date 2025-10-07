@@ -20,7 +20,7 @@ app.use(
   })
 );
 app.use(express.json());
-app.use(express.static(path.resolve(__dirname, "static")));
+app.use("/static", express.static(path.join(__dirname, "static")));
 app.use(fileUpload({}));
 app.use("/api", router);
 

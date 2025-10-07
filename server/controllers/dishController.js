@@ -69,6 +69,8 @@ class DishController {
         allergens,
         nutritionInfo,
         cookingTimeMin,
+        isActive,
+        isStopped,
       } = req.body;
 
       let fileName = null;
@@ -94,6 +96,8 @@ class DishController {
         allergens,
         nutritionInfo,
         cookingTimeMin: cookingTimeMin || 15,
+        isActive: isActive !== undefined ? isActive === "true" : true,
+        isStopped: isStopped !== undefined ? isStopped === "true" : false,
         imgUrl: fileName ? `/static/${fileName}` : null,
       });
 
@@ -135,7 +139,34 @@ class DishController {
         req.body.imgUrl = `/static/${fileName}`;
       }
 
-      await dish.update(req.body);
+      // Разрешаем обновление только определенных полей
+      const allowedFields = [
+        "name",
+        "price",
+        "categoryId",
+        "ingredients",
+        "allergens",
+        "nutritionInfo",
+        "cookingTimeMin",
+        "isActive",
+        "isStopped",
+        "imgUrl",
+      ];
+
+      const updateData = {};
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          // Преобразуем строковые значения в булевы для isActive и isStopped
+          if (field === "isActive" || field === "isStopped") {
+            updateData[field] =
+              req.body[field] === "true" || req.body[field] === true;
+          } else {
+            updateData[field] = req.body[field];
+          }
+        }
+      });
+
+      await dish.update(updateData);
       return res.json(dish);
     } catch (e) {
       next(ApiError.internal(e.message));

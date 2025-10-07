@@ -5,6 +5,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const adminMiddleware = require("../middleware/adminMiddleware");
 
 router.get("/", authMiddleware, categoryController.getAll);
+router.get("/:id", authMiddleware, categoryController.getOne);
 router.post("/", authMiddleware, adminMiddleware, categoryController.create);
 router.put("/:id", authMiddleware, adminMiddleware, categoryController.update);
 router.delete(

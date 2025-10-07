@@ -8,8 +8,24 @@ class OrderController {
       const { status, date } = req.query;
       const where = {};
 
-      if (status) where.status = status;
-      if (date) where.createdAt = { [Op.gte]: new Date(date) };
+      if (status) {
+        if (status.includes(",")) {
+          where.status = { [Op.in]: status.split(",") };
+        } else {
+          where.status = status;
+        }
+      }
+
+      if (date) {
+        const startDate = new Date(date);
+        const endDate = new Date(date);
+        endDate.setDate(endDate.getDate() + 1);
+
+        where.createdAt = {
+          [Op.gte]: startDate,
+          [Op.lt]: endDate,
+        };
+      }
 
       const orders = await Order.findAll({
         where,
@@ -26,6 +42,7 @@ class OrderController {
       });
       return res.json(orders);
     } catch (e) {
+      console.error("Error in getAll orders:", e);
       next(ApiError.internal(e.message));
     }
   }

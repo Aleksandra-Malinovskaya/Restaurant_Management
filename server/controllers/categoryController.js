@@ -13,6 +13,18 @@ class CategoryController {
       next(ApiError.internal(e.message));
     }
   }
+  async getOne(req, res, next) {
+    try {
+      const { id } = req.params;
+      const category = await DishCategory.findByPk(id);
+      if (!category) {
+        return next(ApiError.notFound("Категория не найдена"));
+      }
+      return res.json(category);
+    } catch (e) {
+      next(ApiError.internal(e.message));
+    }
+  }
 
   async create(req, res, next) {
     try {
