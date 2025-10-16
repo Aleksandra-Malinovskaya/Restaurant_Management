@@ -30,6 +30,12 @@ class OrderItemController {
       const { id } = req.params;
       const { status } = req.body;
 
+      // Валидация статуса
+      const validStatuses = ["ordered", "preparing", "ready", "served"];
+      if (!validStatuses.includes(status)) {
+        return next(ApiError.badRequest("Недопустимый статус"));
+      }
+
       const item = await OrderItem.findByPk(id, {
         include: [{ model: Order, as: "order" }],
       });
@@ -47,6 +53,7 @@ class OrderItemController {
 
       await item.update(updateData);
 
+      // Обновляем статус заказа на основе статусов блюд
       if (status === "ready") {
         const pendingItems = await OrderItem.count({
           where: {

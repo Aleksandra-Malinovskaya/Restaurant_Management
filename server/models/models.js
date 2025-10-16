@@ -47,7 +47,15 @@ const Order = sequelize.define("order", {
     defaultValue: "dine_in",
   },
   status: {
-    type: DataTypes.ENUM("open", "in_progress", "ready", "closed", "cancelled"),
+    type: DataTypes.ENUM(
+      "open",
+      "in_progress",
+      "ready",
+      "served",
+      "payment",
+      "closed",
+      "cancelled"
+    ),
     defaultValue: "open",
   },
   totalAmount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0.0 },
