@@ -34,5 +34,11 @@ router.delete(
   adminOrWaiterMiddleware,
   reservationController.delete
 );
+router.get(
+  "/upcoming/check",
+  authMiddleware,
+  adminOrWaiterMiddleware,
+  reservationController.checkUpcomingReservations
+);
 
 module.exports = router;

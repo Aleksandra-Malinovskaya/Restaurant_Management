@@ -414,6 +414,66 @@ class ReservationController {
       next(ApiError.internal(e.message));
     }
   }
+  async checkUpcomingReservations(req, res, next) {
+    try {
+      const { minutes = 15 } = req.query;
+      const now = new Date();
+      const notificationTime = new Date(now.getTime() + minutes * 60000);
+
+      console.log("🔍 Ручная проверка предстоящих бронирований");
+
+      const upcomingReservations = await Reservation.findAll({
+        where: {
+          status: "confirmed",
+          reservedFrom: {
+            [Op.gte]: now,
+            [Op.lte]: notificationTime,
+          },
+        },
+        include: [
+          {
+            model: Table,
+            as: "table",
+            attributes: ["id", "name", "capacity"],
+          },
+        ],
+        order: [["reservedFrom", "ASC"]],
+      });
+
+      // Отправляем уведомления через WebSocket
+      const io = req.app.get("io");
+      if (io) {
+        for (const reservation of upcomingReservations) {
+          const timeUntilReservation = Math.round(
+            (new Date(reservation.reservedFrom) - now) / 60000
+          );
+
+          io.to("waiter")
+            .to("manager")
+            .emit("reservation_notification", {
+              type: "upcoming_reservation",
+              reservationId: reservation.id,
+              customerName: reservation.customerName,
+              tableName: reservation.table.name,
+              tableNumber: reservation.table.name,
+              reservedFrom: reservation.reservedFrom,
+              guestCount: reservation.guestCount,
+              minutesUntil: timeUntilReservation,
+              message: `Через ${timeUntilReservation} минут бронирование: ${reservation.customerName} (${reservation.guestCount} чел.) - Стол ${reservation.table.name}`,
+              timestamp: new Date().toLocaleTimeString("ru-RU"),
+            });
+        }
+      }
+
+      return res.json({
+        message: `Проверка завершена. Найдено бронирований: ${upcomingReservations.length}`,
+        upcomingReservations,
+      });
+    } catch (e) {
+      console.error("Ошибка проверки бронирований:", e);
+      next(ApiError.internal(e.message));
+    }
+  }
 }
 
 module.exports = new ReservationController();
